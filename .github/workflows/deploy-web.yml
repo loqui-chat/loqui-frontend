@@ -1,0 +1,45 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t loqui-web:latest .
+
+      - name: Save image to tar
+        run: docker save loqui-web:latest | gzip > loqui-web.tar.gz
+
+      - name: Copy image to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          source: loqui-web.tar.gz
+          target: /tmp
+
+      - name: Load and restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            docker load < /tmp/loqui-web.tar.gz
+            docker rm -f loqui-web 2>/dev/null || true
+            docker run -d --name loqui-web --restart unless-stopped -p 8090:3000 loqui-web:latest
+            rm -f /tmp/loqui-web.tar.gz
+            docker image prune -f
