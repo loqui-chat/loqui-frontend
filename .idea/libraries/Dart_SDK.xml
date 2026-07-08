@@ -1,0 +1,19 @@
+<component name="libraryTable">
+  <library name="Dart SDK">
+    <CLASSES>
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/async" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/collection" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/convert" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/core" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/developer" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/html" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/io" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/isolate" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/math" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/mirrors" />
+      <root url="file:///nix/store/rf4i1g164i0fb28xk1qz8vfgjkq74daw-flutter-wrapped-3.41.9-sdk-links/bin/cache/dart-sdk/lib/typed_data" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
