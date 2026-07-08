@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:loqui/core/auth/auth_service.dart';
 import 'package:loqui/features/auth/screens/login_screen.dart';
-import 'package:loqui/features/home/screens/home_screen.dart';
+import 'package:loqui/features/channels/screens/channel_list_screen.dart';
+import 'package:loqui/features/chat/screens/chat_screen.dart';
 
 // rebuilt whenever auth state changes
 // redirect gates every route
@@ -27,7 +28,12 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const _Splash()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-      GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
+      GoRoute(path: '/', builder: (_, _) => const ChannelListScreen()),
+      GoRoute(
+        path: '/channel/:id',
+        builder: (_, state) =>
+            ChatScreen(channelId: state.pathParameters['id']!),
+      ),
     ],
   );
 });
