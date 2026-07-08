@@ -2,7 +2,7 @@ name: Deploy Web
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
 
 concurrency:
   group: deploy-web-${{ github.ref }}
