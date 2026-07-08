@@ -53,7 +53,7 @@ class Channel {
   factory Channel.fromJson(Map<String, dynamic> j) => Channel(
     id: j['id'] as String,
     name: j['name'] as String,
-    createdAt: DateTime.parse(j['createdAt'] as String),
+    createdAt: DateTime.parse(j['created_at'] as String),
   );
 }
 
@@ -76,7 +76,7 @@ class Message {
 
   factory Message.fromJson(Map<String, dynamic> j) => Message(
     id: j['id'] as String,
-    channelId: j['channelId'] as String,
+    channelId: j['channel_id'] as String,
     content: j['content'] as String,
     author: Author.fromJson(j['author'] as Map<String, dynamic>),
     createdAt: DateTime.parse(j['created_at'] as String),
