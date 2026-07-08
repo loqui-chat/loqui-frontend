@@ -3,7 +3,7 @@
 // (android emulator reaches host at 10.0.2.2)
 const apiBaseUrl = String.fromEnvironment(
   'LOQUI_API_BASE',
-  defaultValue: 'http://localhost:8080',
+  defaultValue: 'https://loqui.mathiiis.de',
 );
 
 // websocket base derived from api base (http-> ws, https->wss)
