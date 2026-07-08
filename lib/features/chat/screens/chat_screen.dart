@@ -114,7 +114,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: TextField(
                       controller: _input,
                       minLines: 1,
-                      maxLength: 5,
+                      maxLines: 5,
+                      maxLength: 2000,
                       decoration: const InputDecoration(hintText: 'Message'),
                       onSubmitted: (_) => _send(),
                     ),
