@@ -12,7 +12,7 @@ class LoquiApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: 'Loqui',
-      debugShowCheckedModeBanner: true,
+      debugShowCheckedModeBanner: false,
       theme: loquiLightTheme,
       darkTheme: loquiDarkTheme,
       themeMode: ThemeMode.system,
