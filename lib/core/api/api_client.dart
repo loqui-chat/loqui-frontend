@@ -50,6 +50,23 @@ class ApiClient {
     return _decode(res);
   }
 
+  /// Clears local tokens and best-effort revokes session (server-side)
+  Future<void> logout() async {
+    final refresh = await _storage.readRefresh();
+    if (refresh != null) {
+      try {
+        await _http.post(
+          _uri(Endpoints.logout),
+          headers: _json,
+          body: jsonEncode({'refresh_token': refresh}),
+        );
+      } catch (_) {
+        //ignored: local logout proceeds regardless
+      }
+    }
+    await _storage.clear();
+  }
+
   // ==== authenticated ====
 
   Future<dynamic> get(String path, {Map<String, String>? query}) =>
@@ -68,6 +85,11 @@ class ApiClient {
         await _expire();
         throw UnathorizedException('session expired');
       }
+    }
+    res = await send(await _authHeaders());
+    if (res.statusCode == 401) {
+      await _expire();
+      throw UnathorizedException('session expired');
     }
     return _decode(res);
   }
@@ -88,7 +110,10 @@ class ApiClient {
       );
       if (res.statusCode != 200) return false;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      await _storage.saveAccess(data['access_token'] as String);
+      await _storage.saveTokens(
+        data['access_token'] as String,
+        data['refresh_token'] as String,
+      );
       return true;
     } catch (_) {
       return false;
