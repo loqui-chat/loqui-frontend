@@ -102,7 +102,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 controller: _scroll,
                 padding: const EdgeInsets.all(12),
                 itemCount: list.length,
-                itemBuilder: (_, i) => _MessageTile(message: list[i]),
+                itemBuilder: (_, i) {
+                  final m = list[i];
+                  return _MessageTile(
+                    message: m,
+                    // TODO: add functions and update MessageTile for support
+                    isMine: m.author.id == myId,
+                    onEdit: () => _edit(m),
+                    onDelete: () => _delete(m),
+                  );
+                },
               ),
             ),
           ),

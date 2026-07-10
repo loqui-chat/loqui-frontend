@@ -27,8 +27,15 @@ class ChannelMessagesController extends AsyncNotifier<List<Message>> {
     gateway.openChannel(channelId);
 
     final sub = gateway.events.listen((event) {
-      if (event is MessageCreateEvent && event.message.channelId == channelId) {
-        _append(event.message);
+      switch (event) {
+        case MessageCreateEvent() when event.message.channelId == channelId:
+          _append(event.message);
+        case MessageUpdateEvent() when event.message.channelId == channelId:
+          _replace(event.message);
+        case MessageDeleteEvent() when event.channelId == channelId:
+          _remove(event.id);
+        default:
+          break;
       }
     });
     ref.onDispose(sub.cancel);
@@ -54,6 +61,34 @@ class ChannelMessagesController extends AsyncNotifier<List<Message>> {
     final current = state.value ?? const [];
     if (current.any((x) => x.id == m.id)) return; //dedupe by id
     state = AsyncData([...current, m]..sort(_byId));
+  }
+
+  //edit + delete land back via gateway echo, like send
+  Future<void> edit(String messageId, String content) async {
+    final api = ref.read(apiClientProvider);
+    await api.patch(Endpoints.channelMessage(channelId, messageId), {
+      'content': content,
+    });
+  }
+
+  Future<void> delete(String messageId) async {
+    final api = ref.read(apiClientProvider);
+    await api.delete(Endpoints.channelMessage(channelId, messageId));
+  }
+
+  void _replace(Message m) {
+    final current = state.value ?? const [];
+    if (!current.any((x) => x.id == m.id)) return;
+    state = AsyncData([for (final x in current) x.id == m.id ? m : x]);
+  }
+
+  void _remove(String id) {
+    final current = state.value ?? const [];
+    if (!current.any((x) => x.id == id)) return;
+    state = AsyncData([
+      for (final x in current)
+        if (x.id != id) x,
+    ]);
   }
 
   //compare as bigInt
