@@ -85,11 +85,11 @@ class ApiClient {
         await _expire();
         throw UnathorizedException('session expired');
       }
-    }
-    res = await send(await _authHeaders());
-    if (res.statusCode == 401) {
-      await _expire();
-      throw UnathorizedException('session expired');
+      res = await send(await _authHeaders());
+      if (res.statusCode == 401) {
+        await _expire();
+        throw UnathorizedException('session expired');
+      }
     }
     return _decode(res);
   }
