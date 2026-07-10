@@ -76,6 +76,13 @@ class ApiClient {
     (h) => _http.post(_uri(path), headers: h, body: jsonEncode(body)),
   );
 
+  Future<dynamic> patch(String path, Object body) => _authed(
+    (h) => _http.patch(_uri(path), headers: h, body: jsonEncode(body)),
+  );
+
+  Future<dynamic> delete(String path) =>
+      _authed((h) => _http.delete(_uri(path), headers: h));
+
   Future<dynamic> _authed(
     Future<http.Response> Function(Map<String, String> header) send,
   ) async {

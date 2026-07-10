@@ -20,6 +20,16 @@ sealed class GatewayEvent {
           return MessageCreateEvent(
             Message.fromJson(j['data'] as Map<String, dynamic>),
           );
+        case 'message_update':
+          return MessageUpdateEvent(
+            Message.fromJson(j['data'] as Map<String, dynamic>),
+          );
+        case 'message_delete':
+          final d = j['data'] as Map<String, dynamic>;
+          return MessageDeleteEvent(
+            id: d['id'] as String,
+            channelId: d['channel_id'] as String,
+          );
         case 'error':
           return GatewayErrorEvent(j['message'] as String? ?? 'error');
       }
@@ -48,6 +58,17 @@ class UnsubscribedEvent extends GatewayEvent {
 class MessageCreateEvent extends GatewayEvent {
   const MessageCreateEvent(this.message);
   final Message message;
+}
+
+class MessageUpdateEvent extends GatewayEvent {
+  const MessageUpdateEvent(this.message);
+  final Message message;
+}
+
+class MessageDeleteEvent extends GatewayEvent {
+  const MessageDeleteEvent({required this.id, required this.channelId});
+  final String id;
+  final String channelId;
 }
 
 class GatewayErrorEvent extends GatewayEvent {
