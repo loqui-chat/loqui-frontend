@@ -10,11 +10,15 @@ import 'package:loqui/features/chat/screens/chat_screen.dart';
 // rebuilt whenever auth state changes
 // redirect gates every route
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authControllerProvider);
+  final refresh = ValueNotifier(0);
+  ref.onDispose(refresh.dispose);
+  ref.listen<AuthState>(authControllerProvider, (_, _) => refresh.value++);
 
   return GoRouter(
     initialLocation: '/',
+    refreshListenable: refresh,
     redirect: (context, state) {
+      final auth = ref.read(authControllerProvider);
       final loc = state.matchedLocation;
       switch (auth) {
         case AuthLoading():
