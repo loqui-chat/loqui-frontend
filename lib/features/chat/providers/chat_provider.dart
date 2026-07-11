@@ -13,20 +13,24 @@ class ChatState {
     required this.messages,
     required this.hasMore,
     this.loadingOlder = false,
+    this.pending = const [],
   });
 
   final List<Message> messages;
   final bool hasMore;
   final bool loadingOlder;
+  final List<Message> pending; //newer msgs held back while scrolled up
 
   ChatState copyWith({
     List<Message>? messages,
     bool? hasMore,
     bool? loadingOlder,
+    List<Message>? pending,
   }) => ChatState(
     messages: messages ?? this.messages,
     hasMore: hasMore ?? this.hasMore,
     loadingOlder: loadingOlder ?? this.loadingOlder,
+    pending: pending ?? this.pending,
   );
 }
 
@@ -43,6 +47,7 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
 
   static const _pageSize = 50;
   bool _disposed = false;
+  bool _atBottom = true; //view is pinned to newest
 
   @override
   Future<ChatState> build() async {
@@ -143,29 +148,75 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
     }
   }
 
+  // view cllas this a it crossed bottom threshold, flush on arrival
+  void setAtBottom(bool value) {
+    _atBottom = value;
+    if (value) _flushPending();
+  }
+
+  void _flushPending() {
+    final s = state.value;
+    if (s == null || s.pending.isEmpty) return;
+    final existing = {for (final m in s.messages) m.id};
+    final merged = [
+      ...s.messages,
+      ...s.pending.where((m) => !existing.contains(m.id)),
+    ]..sort(_byId);
+    state = AsyncData(s.copyWith(messages: merged, pending: []));
+  }
+
   void _append(Message m) {
     final s = state.value;
-    if (s == null || s.messages.any((x) => x.id == m.id)) return; //dedupe
-    state = AsyncData(s.copyWith(messages: [...s.messages, m]..sort(_byId)));
+    if (s == null ||
+        s.messages.any((x) => x.id == m.id) ||
+        s.pending.any((x) => x.id == m.id)) {
+      return; //dedupe across both lists
+    }
+    if (_atBottom) {
+      state = AsyncData(s.copyWith(messages: [...s.messages, m]..sort(_byId)));
+    } else {
+      state = AsyncData(s.copyWith(pending: [...s.pending, m]));
+    }
   }
 
   void _replace(Message m) {
     final s = state.value;
-    if (s == null || !s.messages.any((x) => x.id == m.id)) return;
+    if (s == null) return;
+    final inMsgs = s.messages.any((x) => x.id == m.id);
+    final inPend = s.pending.any((x) => x.id == m.id);
+    if (!inMsgs && !inPend) return;
     state = AsyncData(
-      s.copyWith(messages: [for (final x in s.messages) x.id == m.id ? m : x]),
+      s.copyWith(
+        messages: inMsgs
+            ? [for (final x in s.messages) x.id == m.id ? m : x]
+            : null,
+        pending: inPend
+            ? [for (final x in s.pending) x.id == m.id ? m : x]
+            : null,
+      ),
     );
   }
 
   void _remove(String id) {
     final s = state.value;
-    if (s == null || !s.messages.any((x) => x.id == id)) return;
+    if (s == null) return;
+    final inMsgs = s.messages.any((x) => x.id == id);
+    final inPend = s.pending.any((x) => x.id == id);
+    if (!inMsgs && !inPend) return;
     state = AsyncData(
       s.copyWith(
-        messages: [
-          for (final x in s.messages)
-            if (x.id != id) x,
-        ],
+        messages: inMsgs
+            ? [
+                for (final x in s.messages)
+                  if (x.id != id) x,
+              ]
+            : null,
+        pending: inPend
+            ? [
+                for (final x in s.pending)
+                  if (x.id != id) x,
+              ]
+            : null,
       ),
     );
   }

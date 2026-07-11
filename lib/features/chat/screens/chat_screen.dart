@@ -21,7 +21,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
-  bool _hasNewBelow = false;
+  bool _wasAtBottom = true;
 
   @override
   void initState() {
@@ -139,9 +139,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (pos.pixels >= pos.maxScrollExtent - 300) {
       ref.read(channelMessagesProvider(widget.channelId).notifier).loadOlder();
     }
-    //back at bottom: clear new-messages hint
-    if (_hasNewBelow && pos.pixels <= 60) {
-      setState(() => _hasNewBelow = false);
+    //entering/leaving bottom flushes any held messages
+    final atBottom = pos.pixels <= 60;
+    if (atBottom != _wasAtBottom) {
+      _wasAtBottom = atBottom;
+      ref
+          .read(channelMessagesProvider(widget.channelId).notifier)
+          .setAtBottom(atBottom);
     }
   }
 
@@ -152,6 +156,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
     );
+  }
+
+  //scroll to newest, then release held message once actually there
+  void _goToBottom() {
+    final notifier = ref.read(
+      channelMessagesProvider(widget.channelId).notifier,
+    );
+    if (!_scroll.hasClients) {
+      _wasAtBottom = true;
+      notifier.setAtBottom(true);
+      return;
+    }
+    _scroll
+        .animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        )
+        .then((_) {
+          _wasAtBottom = true;
+          notifier.setAtBottom(true);
+        });
   }
 
   @override
@@ -166,25 +192,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.listen(channelMessagesProvider(widget.channelId), (prev, next) {
       final after = next.value;
       if (after == null || after.messages.isEmpty) return;
-      final prevMsgs = prev?.value?.messages ?? const <Message>[];
-      final grewAtBottom =
-          after.messages.length > prevMsgs.length &&
-          (prevMsgs.isEmpty || after.messages.last.id != prevMsgs.last.id);
-      if (!grewAtBottom) return;
-
-      if (_atBottom) {
+      final prevLen = prev?.value?.messages.length ?? 0;
+      if (after.messages.length > prevLen && _atBottom) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
-      } else {
-        final oldMax = _scroll.hasClients
-            ? _scroll.position.maxScrollExtent
-            : 0.0;
-        final oldPixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_scroll.hasClients) return;
-          final delta = _scroll.position.maxScrollExtent - oldMax;
-          if (delta > 0) _scroll.jumpTo(oldPixels + delta);
-        });
-        if (!_hasNewBelow) setState(() => _hasNewBelow = true);
       }
     });
 
@@ -247,21 +257,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     },
                   ),
                 ),
-                if (_hasNewBelow)
+                if ((messages.value?.pending ?? const []).isNotEmpty)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 8,
                     child: Center(
-                      child: ActionChip(
-                        avatar: const Icon(
-                          Icons.arrow_downward_rounded,
-                          size: 16,
-                        ),
-                        label: const Text('New messages'),
-                        onPressed: () {
-                          _jumpToBottom();
-                          setState(() => _hasNewBelow = false);
+                      child: Builder(
+                        builder: (_) {
+                          final pending = messages.value?.pending ?? const [];
+                          return ActionChip(
+                            avatar: const Icon(
+                              Icons.arrow_downward_rounded,
+                              size: 16,
+                            ),
+                            label: Text(
+                              pending.length == 1
+                                  ? '1 new message '
+                                  : '${pending.length} new messages',
+                            ),
+                            onPressed: _goToBottom,
+                          );
                         },
                       ),
                     ),
