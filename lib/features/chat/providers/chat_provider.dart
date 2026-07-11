@@ -7,19 +7,46 @@ import 'package:loqui/core/gateway/gateway_events.dart';
 import 'package:loqui/core/gateway/gateway_providers.dart';
 import 'package:loqui/shared/models/models.dart';
 
-// messages for one channel: latest page from REST, plus live gateway
-// events merged in an deduped by id. ordered oldest-first
+// immutable chat state: loaded messages (oldest-first) plus pagination flags
+class ChatState {
+  const ChatState({
+    required this.messages,
+    required this.hasMore,
+    this.loadingOlder = false,
+  });
+
+  final List<Message> messages;
+  final bool hasMore;
+  final bool loadingOlder;
+
+  ChatState copyWith({
+    List<Message>? messages,
+    bool? hasMore,
+    bool? loadingOlder,
+  }) => ChatState(
+    messages: messages ?? this.messages,
+    hasMore: hasMore ?? this.hasMore,
+    loadingOlder: loadingOlder ?? this.loadingOlder,
+  );
+}
+
+// messages for one channel: latest page from REST, older pages on demand,
+// plus live gateway events merged in an deduped by id. oldest-first
 final channelMessagesProvider = AsyncNotifierProvider.autoDispose
-    .family<ChannelMessagesController, List<Message>, String>(
+    .family<ChannelMessagesController, ChatState, String>(
       ChannelMessagesController.new,
     );
 
-class ChannelMessagesController extends AsyncNotifier<List<Message>> {
+class ChannelMessagesController extends AsyncNotifier<ChatState> {
   ChannelMessagesController(this.channelId);
   final String channelId;
 
+  static const _pageSize = 50;
+  bool _disposed = false;
+
   @override
-  Future<List<Message>> build() async {
+  Future<ChatState> build() async {
+    _disposed = false;
     final api = ref.watch(apiClientProvider);
     final gateway = ref.watch(gatewayClientProvider);
 
@@ -38,29 +65,29 @@ class ChannelMessagesController extends AsyncNotifier<List<Message>> {
           break;
       }
     });
-    ref.onDispose(sub.cancel);
+    ref.onDispose(() {
+      _disposed = true;
+      sub.cancel();
+    });
 
     final data =
         await api.get(
               Endpoints.channelMessages(channelId),
-              query: {'limit': '50'},
+              query: {'limit': '$_pageSize'},
             )
             as List<dynamic>;
 
-    return data.map((e) => Message.fromJson(e as Map<String, dynamic>)).toList()
-      ..sort(_byId);
+    final messages =
+        data.map((e) => Message.fromJson(e as Map<String, dynamic>)).toList()
+          ..sort(_byId);
+
+    return ChatState(messages: messages, hasMore: data.length == _pageSize);
   }
 
   Future<void> send(String content) async {
     final api = ref.read(apiClientProvider);
     //wait for gateway echo before appending
     await api.post(Endpoints.channelMessages(channelId), {'content': content});
-  }
-
-  void _append(Message m) {
-    final current = state.value ?? const [];
-    if (current.any((x) => x.id == m.id)) return; //dedupe by id
-    state = AsyncData([...current, m]..sort(_byId));
   }
 
   //edit + delete land back via gateway echo, like send
@@ -76,19 +103,71 @@ class ChannelMessagesController extends AsyncNotifier<List<Message>> {
     await api.delete(Endpoints.channelMessage(channelId, messageId));
   }
 
+  // fetch one older page before oldest loaded message
+  Future<void> loadOlder() async {
+    final s = state.value;
+    if (s == null || !s.hasMore || s.loadingOlder || s.messages.isEmpty) return;
+    state = AsyncData(s.copyWith(loadingOlder: true));
+
+    final api = ref.read(apiClientProvider);
+    try {
+      final data =
+          await api.get(
+                Endpoints.channelMessages(channelId),
+                query: {'limit': '$_pageSize', 'before': s.messages.first.id},
+              )
+              as List<dynamic>;
+      if (_disposed) return;
+
+      final fetched = data
+          .map((e) => Message.fromJson(e as Map<String, dynamic>))
+          .toList();
+      final existing = {for (final m in s.messages) m.id};
+      final merged = [
+        ...fetched.where((m) => !existing.contains(m.id)),
+        ...s.messages,
+      ]..sort(_byId);
+
+      state = AsyncData(
+        ChatState(
+          messages: merged,
+          hasMore: data.length == _pageSize,
+          loadingOlder: false,
+        ),
+      );
+    } catch (_) {
+      //keep hasMore so a later scroll can retry
+      if (_disposed) return;
+      final cur = state.value;
+      if (cur != null) state = AsyncData(cur.copyWith(loadingOlder: false));
+    }
+  }
+
+  void _append(Message m) {
+    final s = state.value;
+    if (s == null || s.messages.any((x) => x.id == m.id)) return; //dedupe
+    state = AsyncData(s.copyWith(messages: [...s.messages, m]..sort(_byId)));
+  }
+
   void _replace(Message m) {
-    final current = state.value ?? const [];
-    if (!current.any((x) => x.id == m.id)) return;
-    state = AsyncData([for (final x in current) x.id == m.id ? m : x]);
+    final s = state.value;
+    if (s == null || !s.messages.any((x) => x.id == m.id)) return;
+    state = AsyncData(
+      s.copyWith(messages: [for (final x in s.messages) x.id == m.id ? m : x]),
+    );
   }
 
   void _remove(String id) {
-    final current = state.value ?? const [];
-    if (!current.any((x) => x.id == id)) return;
-    state = AsyncData([
-      for (final x in current)
-        if (x.id != id) x,
-    ]);
+    final s = state.value;
+    if (s == null || !s.messages.any((x) => x.id == id)) return;
+    state = AsyncData(
+      s.copyWith(
+        messages: [
+          for (final x in s.messages)
+            if (x.id != id) x,
+        ],
+      ),
+    );
   }
 
   //compare as bigInt

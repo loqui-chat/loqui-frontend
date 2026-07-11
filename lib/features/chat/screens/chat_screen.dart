@@ -21,9 +21,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
+  bool _hasNewBelow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -121,13 +129,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  // reverse:true, so newest is offset 0 and older is maxScrollExtent
+  bool get _atBottom => !_scroll.hasClients || _scroll.position.pixels <= 60;
+
+  void _onScroll() {
     if (!_scroll.hasClients) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      }
-    });
+    final pos = _scroll.position;
+    //near top: pull an older page
+    if (pos.pixels >= pos.maxScrollExtent - 300) {
+      ref.read(channelMessagesProvider(widget.channelId).notifier).loadOlder();
+    }
+    //back at bottom: clear new-messages hint
+    if (_hasNewBelow && pos.pixels <= 60) {
+      setState(() => _hasNewBelow = false);
+    }
+  }
+
+  void _jumpToBottom() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -137,9 +161,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final auth = ref.watch(authControllerProvider);
     final myId = auth is Authenticated ? auth.user.id : null;
 
-    //keep view pinned to newest message
-    ref.listen(channelMessagesProvider(widget.channelId), (_, _) {
-      _scrollToBottom();
+    // on new bottom message: pin if already at bottom, otherwise keep
+    // reading position (compensate for inserted height) and hint
+    ref.listen(channelMessagesProvider(widget.channelId), (prev, next) {
+      final after = next.value;
+      if (after == null || after.messages.isEmpty) return;
+      final prevMsgs = prev?.value?.messages ?? const <Message>[];
+      final grewAtBottom =
+          after.messages.length > prevMsgs.length &&
+          (prevMsgs.isEmpty || after.messages.last.id != prevMsgs.last.id);
+      if (!grewAtBottom) return;
+
+      if (_atBottom) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+      } else {
+        final oldMax = _scroll.hasClients
+            ? _scroll.position.maxScrollExtent
+            : 0.0;
+        final oldPixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_scroll.hasClients) return;
+          final delta = _scroll.position.maxScrollExtent - oldMax;
+          if (delta > 0) _scroll.jumpTo(oldPixels + delta);
+        });
+        if (!_hasNewBelow) setState(() => _hasNewBelow = true);
+      }
     });
 
     return Scaffold(
@@ -170,23 +216,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: messages.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Failed to laod\n$e')),
-              data: (list) => ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.all(12),
-                itemCount: list.length,
-                itemBuilder: (_, i) {
-                  final m = list[i];
-                  return _MessageTile(
-                    message: m,
-                    isMine: m.author.id == myId,
-                    onEdit: () => _edit(m),
-                    onDelete: () => _delete(m),
-                  );
-                },
-              ),
+            child: Stack(
+              children: [
+                messages.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('Failed to load\n$e')),
+                  data: (chat) => ListView.builder(
+                    controller: _scroll,
+                    reverse: true,
+                    padding: const EdgeInsets.all(12),
+                    itemCount:
+                        chat.messages.length + (chat.loadingOlder ? 1 : 0),
+                    itemBuilder: (_, i) {
+                      //trailing slot (top in reverse) is older page loader
+                      if (chat.loadingOlder && i == chat.messages.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final m = chat.messages[chat.messages.length - 1 - i];
+                      return _MessageTile(
+                        key: ValueKey(m.id),
+                        message: m,
+                        isMine: m.author.id == myId,
+                        onEdit: () => _edit(m),
+                        onDelete: () => _delete(m),
+                      );
+                    },
+                  ),
+                ),
+                if (_hasNewBelow)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 8,
+                    child: Center(
+                      child: ActionChip(
+                        avatar: const Icon(
+                          Icons.arrow_downward_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('New messages'),
+                        onPressed: () {
+                          _jumpToBottom();
+                          setState(() => _hasNewBelow = false);
+                        },
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           SafeArea(
@@ -241,6 +321,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
 class _MessageTile extends StatelessWidget {
   const _MessageTile({
+    super.key,
     required this.message,
     this.isMine = false,
     this.onEdit,
