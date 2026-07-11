@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:loqui/core/auth/auth_service.dart';
 
 import 'package:loqui/core/gateway/gateway_client.dart';
 import 'package:loqui/features/chat/providers/chat_provider.dart';
@@ -48,6 +49,78 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _edit(Message m) async {
+    final controller = TextEditingController(text: m.content);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 5,
+          maxLength: 2000,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = result?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == m.content) return;
+    try {
+      await ref
+          .read(channelMessagesProvider(widget.channelId).notifier)
+          .edit(m.id, trimmed);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _delete(Message m) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete message?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await ref
+          .read(channelMessagesProvider(widget.channelId).notifier)
+          .delete(m.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
   void _scrollToBottom() {
     if (!_scroll.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -61,6 +134,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final messages = ref.watch(channelMessagesProvider(widget.channelId));
     final status = ref.watch(gatewayStatusProvider).value;
+    final auth = ref.watch(authControllerProvider);
+    final myId = auth is Authenticated ? auth.user.id : null;
 
     //keep view pinned to newest message
     ref.listen(channelMessagesProvider(widget.channelId), (_, _) {
@@ -106,7 +181,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   final m = list[i];
                   return _MessageTile(
                     message: m,
-                    // TODO: add functions and update MessageTile for support
                     isMine: m.author.id == myId,
                     onEdit: () => _edit(m),
                     onDelete: () => _delete(m),
@@ -166,14 +240,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message});
+  const _MessageTile({
+    required this.message,
+    this.isMine = false,
+    this.onEdit,
+    this.onDelete,
+  });
   final Message message;
+  final bool isMine;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     final t = message.createdAt.toLocal();
     final time =
         '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    final muted = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: Theme.of(context).colorScheme.outline,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -186,12 +271,30 @@ class _MessageTile extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(width: 8),
-              Text(
-                time,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
+              Text(time, style: muted),
+              if (message.editedAt != null) ...[
+                const SizedBox(width: 6),
+                Text('(edited)', style: muted),
+              ],
+              if (isMine) ...[
+                const Spacer(),
+                SizedBox(
+                  height: 20,
+                  width: 28,
+                  child: PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    iconSize: 18,
+                    onSelected: (v) {
+                      if (v == 'edit') onEdit?.call();
+                      if (v == 'delete') onDelete?.call();
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 2),
