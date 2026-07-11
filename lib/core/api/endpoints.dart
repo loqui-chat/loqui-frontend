@@ -18,6 +18,6 @@ class Endpoints {
   static const channels = '/channels';
   static String channelMessages(String id) => '/channels/$id/messages';
   static String channelMessage(String id, String mid) =>
-      '/channels/$id/messages/mid';
+      '/channels/$id/messages/$mid';
   static const gateway = '/gateway';
 }
