@@ -48,10 +48,17 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
   static const _pageSize = 50;
   bool _disposed = false;
   bool _atBottom = true; //view is pinned to newest
+  bool _everConnected = false;
+  bool _sawDisconnect = false;
+  bool _catchingUp = false;
 
   @override
   Future<ChatState> build() async {
     _disposed = false;
+    _sawDisconnect = false;
+    _catchingUp = false;
+    _everConnected =
+        ref.read(gatewayStatusProvider).value == GatewayStatus.connected;
     final api = ref.watch(apiClientProvider);
     final gateway = ref.watch(gatewayClientProvider);
 
@@ -73,6 +80,21 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
     ref.onDispose(() {
       _disposed = true;
       sub.cancel();
+    });
+
+    //catch up on messages missed while socket was down
+    ref.listen(gatewayStatusProvider, (_, next) {
+      final s = next.value;
+      if (s == null) return;
+      if (s != GatewayStatus.connected) {
+        if (_everConnected) _sawDisconnect = true;
+        return;
+      }
+      if (_sawDisconnect) {
+        _sawDisconnect = false;
+        _catchUp();
+      }
+      _everConnected = true;
     });
 
     final data =
@@ -165,19 +187,7 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
     state = AsyncData(s.copyWith(messages: merged, pending: []));
   }
 
-  void _append(Message m) {
-    final s = state.value;
-    if (s == null ||
-        s.messages.any((x) => x.id == m.id) ||
-        s.pending.any((x) => x.id == m.id)) {
-      return; //dedupe across both lists
-    }
-    if (_atBottom) {
-      state = AsyncData(s.copyWith(messages: [...s.messages, m]..sort(_byId)));
-    } else {
-      state = AsyncData(s.copyWith(pending: [...s.pending, m]));
-    }
-  }
+  void _append(Message m) => _ingestNewer([m]);
 
   void _replace(Message m) {
     final s = state.value;
@@ -219,6 +229,78 @@ class ChannelMessagesController extends AsyncNotifier<ChatState> {
             : null,
       ),
     );
+  }
+
+  // route newer messages to view if pinned, else hold as pending
+  void _ingestNewer(Iterable<Message> incoming) {
+    final s = state.value;
+    if (s == null) return;
+    final known = {
+      for (final m in s.messages) m.id,
+      for (final m in s.pending) m.id,
+    };
+    final fresh = [
+      for (final m in incoming)
+        if (!known.contains(m.id)) m,
+    ];
+    if (fresh.isEmpty) return;
+    if (_atBottom) {
+      state = AsyncData(
+        s.copyWith(messages: [...s.messages, ...fresh]..sort(_byId)),
+      );
+    } else {
+      state = AsyncData(
+        s.copyWith(pending: [...s.pending, ...fresh]..sort(_byId)),
+      );
+    }
+  }
+
+  String? _newestId(ChatState s) {
+    final ids = [
+      if (s.messages.isNotEmpty) s.messages.last.id,
+      if (s.pending.isNotEmpty) s.pending.last.id,
+    ];
+    if (ids.isEmpty) return null;
+    ids.sort((a, b) => BigInt.parse(a).compareTo(BigInt.parse(b)));
+    return ids.last;
+  }
+
+  // pages forward from newest loaded id until it reaches present
+  Future<void> _catchUp() async {
+    if (_catchingUp) return;
+    final start = state.value;
+    if (start == null) return;
+    final newest = _newestId(start);
+    if (newest == null) return; //nothing loaded, initial fetch covers it
+    var cursor = newest;
+    _catchingUp = true;
+
+    final api = ref.read(apiClientProvider);
+    try {
+      while (true) {
+        final data =
+            await api.get(
+                  Endpoints.channelMessages(channelId),
+                  query: {'limit': '$_pageSize', 'after': cursor},
+                )
+                as List<dynamic>;
+        if (_disposed) return;
+        if (data.isEmpty) break;
+
+        final batch =
+            data
+                .map((e) => Message.fromJson(e as Map<String, dynamic>))
+                .toList()
+              ..sort(_byId);
+        _ingestNewer(batch);
+        cursor = batch.last.id; //newest so far, strictly advances
+        if (data.length < _pageSize) break;
+      }
+    } catch (_) {
+      //may retry on reconnect or reload
+    } finally {
+      _catchingUp = false;
+    }
   }
 
   //compare as bigInt
